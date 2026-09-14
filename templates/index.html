@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSPy Live Lab — support-ticket triage</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<header class="topbar">
+  <div>
+    <p class="eyebrow">DSPy Live Lab</p>
+    <h1>Watch a prompt get compiled — and optimized — in real time</h1>
+    <p class="lede">Every click below makes a <strong>real call</strong> to your LM. Nothing here is pre-recorded. Work through the four steps in order the first time; after that, jump around freely.</p>
+  </div>
+  <div class="status-chips" id="statusChips">
+    <span class="chip" id="chipKey">🔑 key: not set</span>
+    <span class="chip" id="chipData">📄 data: not loaded</span>
+    <span class="chip" id="chipOpt">⚙️ optimized: no</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============================================================ STEP 1 -->
+  <section class="step" id="step1">
+    <div class="step-head">
+      <span class="step-num">1</span>
+      <div>
+        <h2 id="step1Title">Connect your API key</h2>
+        <p class="guide" id="step1Guide">This app talks to an LM the same way <code>common.py</code> does in the rest of this project: <code>dspy.LM(model, cache=True)</code> then <code>dspy.configure(lm=lm)</code>. Your key stays on your own machine — it's used to call OpenAI and nowhere else, and is never written to disk.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row" id="connectForm">
+        <label class="field">
+          <span>OpenAI API key</span>
+          <input type="password" id="apiKey" placeholder="sk-...">
+        </label>
+        <label class="field" style="max-width:280px;">
+          <span>Model</span>
+          <input type="text" id="modelName" value="openai/gpt-5.4-nano">
+        </label>
+        <button class="btn primary" id="connectBtn">Connect</button>
+      </div>
+      <p class="hint" id="connectHint">"Connect" makes one tiny real call to confirm the key and model work — the same check <code>00_check.py</code> does.</p>
+      <div class="banner" id="connectBanner" hidden></div>
+      <div class="banner ok" id="autoConfigBanner" hidden></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ STEP 2 -->
+  <section class="step" id="step2">
+    <div class="step-head">
+      <span class="step-num">2</span>
+      <div>
+        <h2>Load a dataset</h2>
+        <p class="guide">A dataset here is just labeled examples: a piece of text, plus the two labels DSPy should learn to predict. Use the built-in ticket-triage set, or bring your own — <em>any</em> label names work, DSPy learns whatever categories your data actually contains.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="seg" role="tablist">
+        <button class="segbtn" data-source="builtin" aria-selected="true">Use the built-in dataset</button>
+        <button class="segbtn" data-source="custom" aria-selected="false">Bring my own data</button>
+      </div>
+
+      <div id="builtinPanel">
+        <p class="hint">36 real support tickets, labeled by a rubric that's <em>never</em> written into any prompt — the point of the whole demo. See <code>common.py</code> in this project for the full list.</p>
+      </div>
+
+      <div id="customPanel" hidden>
+        <p class="hint">
+          Format: CSV with header <code>ticket,category,urgency</code>, or JSON — an array of
+          <code>{"ticket": "...", "category": "...", "urgency": "..."}</code> objects.
+          <code>ticket</code> is the free text; <code>category</code> and <code>urgency</code> can be <em>any</em> labels
+          you want (they don't have to match the built-in ones). Include at least 6–8 rows so there's enough to split
+          into train/dev.
+        </p>
+        <div class="row">
+          <div class="seg small">
+            <button class="segbtn" data-format="csv" aria-selected="true">CSV</button>
+            <button class="segbtn" data-format="json" aria-selected="false">JSON</button>
+          </div>
+          <label class="btn ghost" for="fileInput">Upload a file…</label>
+          <input type="file" id="fileInput" accept=".csv,.json,.txt" hidden>
+        </div>
+        <textarea id="rawData" rows="7" placeholder="ticket,category,urgency
+Can't log into my account since this morning.,account_access,high
+Would be nice to have a dark mode.,feature_request,low"></textarea>
+        <label class="field">
+          <span>Task instructions <span class="optional">(optional — this becomes the signature's docstring)</span></span>
+          <input type="text" id="customInstructions" placeholder="Classify the input text.">
+        </label>
+      </div>
+
+      <button class="btn primary" id="loadDatasetBtn">Load dataset</button>
+      <div class="banner" id="datasetBanner" hidden></div>
+
+      <div class="dataset-summary" id="datasetSummary" hidden>
+        <div class="stat-row">
+          <div class="stat"><div class="v" id="statTrain">–</div><div class="k">train examples</div></div>
+          <div class="stat"><div class="v" id="statDev">–</div><div class="k">dev examples</div></div>
+          <div class="stat"><div class="v" id="statCats">–</div><div class="k">categories</div></div>
+          <div class="stat"><div class="v" id="statUrg">–</div><div class="k">urgencies</div></div>
+        </div>
+        <table class="preview" id="samplePreview"></table>
+        <p class="subhead">What just happened, step by step</p>
+        <div class="trace" id="datasetTrace"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ STEP 3 -->
+  <section class="step" id="step3">
+    <div class="step-head">
+      <span class="step-num">3</span>
+      <div>
+        <h2>See the prompt. Then run it for real.</h2>
+        <p class="guide">
+          DSPy calls your typed input/output spec a <strong>Signature</strong>. It is not a prompt — it's a contract
+          (field names, types, one instruction string). A function called <code>ChatAdapter.format()</code> turns that
+          contract into the actual messages sent to the LM: a system message built from three parts (the field
+          description, a strict wire format using <code>[[ ## field ## ]]</code> markers, and your instructions), then
+          the input. Type anything below and click <strong>Preview prompt</strong> to see that function's real output —
+          for free, no API call. Click <strong>Classify</strong> to actually send it and see the real answer.
+        </p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row" style="align-items:flex-start;">
+        <label class="field" style="flex:1;">
+          <span>Text to classify</span>
+          <textarea id="tryTicket" rows="3" placeholder="Paste a ticket, an email, any short text your loaded dataset's categories could apply to…"></textarea>
+        </label>
+        <div class="seg vertical" id="whichProgram">
+          <button class="segbtn" data-which="baseline" aria-selected="true">Baseline</button>
+          <button class="segbtn" data-which="optimized" aria-selected="false" id="optimizedTab" disabled>Optimized</button>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn ghost" id="previewBtn">Preview prompt (free)</button>
+        <button class="btn primary" id="classifyBtn">Classify (real call)</button>
+      </div>
+      <div class="banner" id="tryBanner" hidden></div>
+
+      <div class="prompt-view" id="promptView" hidden>
+        <p class="subhead">How this prompt got built, step by step</p>
+        <div class="trace" id="previewTrace"></div>
+        <p class="subhead">The compiled system message</p>
+        <div class="chatmsg system">
+          <div class="seg3">
+            <div class="blk fd"><span class="tag">field description</span><pre id="fdText"></pre></div>
+            <div class="blk fs"><span class="tag">field structure — the wire format</span><pre id="fsText"></pre></div>
+            <div class="blk td"><span class="tag">task description — signature.instructions</span><pre id="tdText"></pre></div>
+          </div>
+        </div>
+        <p class="hint" id="demoNote"></p>
+      </div>
+
+      <div class="prompt-view" id="classifyLive" hidden>
+        <p class="subhead">What's happening right now</p>
+        <div class="trace" id="classifyTrace"></div>
+      </div>
+
+      <div class="result-view" id="resultView" hidden>
+        <p class="subhead">Real result</p>
+        <div class="result-row">
+          <div class="stat"><div class="v" id="resCategory">–</div><div class="k">category</div></div>
+          <div class="stat"><div class="v" id="resUrgency">–</div><div class="k">urgency</div></div>
+          <div class="stat"><div class="v" id="resLatency">–</div><div class="k">latency</div></div>
+        </div>
+        <div id="resReasoningWrap" hidden>
+          <p class="subhead">Reasoning (a normal output field — nothing hidden)</p>
+          <pre class="reasoning" id="resReasoning"></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ STEP 4 -->
+  <section class="step" id="step4">
+    <div class="step-head">
+      <span class="step-num">4</span>
+      <div>
+        <h2>Search for the best prompt</h2>
+        <p class="guide">
+          "Best" is not a feeling — it's whatever your <strong>rubric</strong> (a scoring function) says. Pick what
+          counts as correct below, pick a search budget, and DSPy will try candidate instructions and few-shot example
+          sets, scoring each one against your dev set with that rubric, and keep whichever combination scores highest.
+          Change the rubric and re-run, and it optimizes for a <em>different</em> definition of "best" — the rubric is
+          a parameter you choose, not something built into DSPy.
+        </p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row">
+        <label class="field">
+          <span>What counts as "correct"? (the rubric)</span>
+          <select id="metricSelect">
+            <option value="both">Both category and urgency must match</option>
+            <option value="category">Category only</option>
+            <option value="urgency">Urgency only</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Search budget</span>
+          <select id="optimizerSelect">
+            <option value="quick">Quick — BootstrapFewShot (~30s, picks examples only)</option>
+            <option value="thorough">Thorough — MIPROv2 (a few minutes, also rewrites instructions)</option>
+          </select>
+        </label>
+        <button class="btn primary" id="optimizeBtn">Run optimization</button>
+      </div>
+      <div class="banner" id="optimizeBanner" hidden></div>
+
+      <div class="opt-live" id="optLive" hidden>
+        <div class="summary-row" id="optSummary" hidden>
+          <div class="stat"><div class="v" id="optBefore">–</div><div class="k">before</div></div>
+          <div class="stat win"><div class="v" id="optAfter">–</div><div class="k">after</div></div>
+          <div class="stat"><div class="v" id="optDelta">–</div><div class="k">gained</div></div>
+        </div>
+
+        <div class="chartwrap" id="chartWrap" hidden>
+          <svg class="chart" id="trialChart" viewBox="0 0 640 220" role="img" aria-label="Score per trial"></svg>
+        </div>
+
+        <p class="subhead">Live log — DSPy's own output, streamed</p>
+        <pre class="log" id="optLog"></pre>
+      </div>
+
+      <div class="winner" id="winnerBlock" hidden>
+        <p class="subhead">The instruction DSPy wrote</p>
+        <pre class="winnertext" id="winnerText"></pre>
+        <p class="hint" id="winnerDemos"></p>
+        <p class="hint">Go back to step 3 and switch the toggle to <strong>Optimized</strong> to try this on your own input.</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <p>Part of the <code>dspy-demo</code> project — see <code>CODE_WALKTHROUGH.md</code> for how the underlying scripts work, and <code>README_WEBAPP.md</code> for how this page works.</p>
+</footer>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
