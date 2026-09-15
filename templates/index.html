@@ -65,6 +65,15 @@
         <button class="segbtn" data-source="custom" aria-selected="false">Bring my own data</button>
       </div>
 
+      <div class="field">
+        <span>Module <span class="optional">(the execution strategy wrapped around the signature)</span></span>
+        <div class="seg" role="tablist" id="moduleSeg">
+          <button class="segbtn" data-module="cot" aria-selected="true">ChainOfThought — reasons first</button>
+          <button class="segbtn" data-module="predict" aria-selected="false">Predict — answers directly</button>
+        </div>
+        <p class="hint">Same signature either way. <code>ChainOfThought</code> adds a <code>reasoning</code> output field and asks the model to think before answering; <code>Predict</code> skips straight to the answer in one call. Swap it and reload the dataset to see the compiled prompt change in step 3.</p>
+      </div>
+
       <div id="builtinPanel">
         <p class="hint">36 real support tickets, labeled by a rubric that's <em>never</em> written into any prompt — the point of the whole demo. See <code>common.py</code> in this project for the full list.</p>
       </div>

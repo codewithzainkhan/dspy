@@ -52,6 +52,14 @@
   /* ============================================================ STEP 2 */
   let dataSource = "builtin";
   let dataFormat = "csv";
+  let moduleChoice = "cot";
+
+  document.querySelectorAll('#moduleSeg [data-module]').forEach((btn) => {
+    on(btn, "click", () => {
+      moduleChoice = btn.dataset.module;
+      document.querySelectorAll('#moduleSeg [data-module]').forEach((b) => b.setAttribute("aria-selected", b === btn ? "true" : "false"));
+    });
+  });
 
   document.querySelectorAll('[data-source]').forEach((btn) => {
     on(btn, "click", () => {
@@ -86,9 +94,10 @@
     hideBanner($("datasetBanner"));
     try {
       const payload = dataSource === "builtin"
-        ? { source: "builtin" }
+        ? { source: "builtin", module: moduleChoice }
         : {
             source: "custom",
+            module: moduleChoice,
             format: dataFormat,
             raw_text: $("rawData").value,
             instructions: $("customInstructions").value,

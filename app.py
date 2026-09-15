@@ -66,6 +66,7 @@ STATE = {
     "train": None,
     "dev": None,
     "signature": None,
+    "module": "cot",
     "baseline": None,
     "optimized": None,
     "optimize_job": fresh_job(),
@@ -173,6 +174,19 @@ def build_signature(categories: list[str], urgencies: list[str], instructions: s
         "urgency": (Urgency, dspy.OutputField()),
     }
     return dspy.Signature(fields, instructions)
+
+
+MODULE_LABELS = {
+    "predict": "dspy.Predict - answers directly, one LM call, no reasoning field",
+    "cot": "dspy.ChainOfThought - reasons first, adds a 'reasoning' output field automatically",
+}
+
+
+def make_program(sig, module_name: str):
+    """The execution strategy wrapped around a signature - same task, different module."""
+    if module_name == "predict":
+        return dspy.Predict(sig)
+    return dspy.ChainOfThought(sig)
 
 
 def make_metric(mode: str):
@@ -317,6 +331,9 @@ def api_status():
 def api_dataset():
     body = request.get_json(force=True)
     source = body.get("source")
+    module_name = body.get("module", "cot")
+    if module_name not in MODULE_LABELS:
+        module_name = "cot"
     tr = Trace()
 
     try:
@@ -355,13 +372,14 @@ def api_dataset():
     except Exception as e:
         return jsonify({"error": f"Couldn't parse that dataset: {e}"}), 400
 
-    baseline = dspy.ChainOfThought(sig)
-    tr.step("wrapped the signature in dspy.ChainOfThought() as the baseline program - this adds a 'reasoning' output field automatically")
+    baseline = make_program(sig, module_name)
+    tr.step(f"wrapped the signature in {MODULE_LABELS[module_name]}")
 
     with STATE_LOCK:
         STATE["train"] = train_ex
         STATE["dev"] = dev_ex
         STATE["signature"] = sig
+        STATE["module"] = module_name
         STATE["baseline"] = baseline
         STATE["optimized"] = None
         STATE["optimize_job"] = fresh_job()
@@ -373,6 +391,7 @@ def api_dataset():
         "categories": categories,
         "urgencies": urgencies,
         "instructions": sig.instructions,
+        "module": module_name,
         "sample": [{"ticket": e.ticket, "category": e.category, "urgency": e.urgency} for e in train_ex[:3]],
         "trace": tr.list(),
     })
@@ -482,7 +501,7 @@ def api_classify_stream():
     return Response(gen(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-def run_optimize_job(job, train, dev, sig, model, metric_mode, optimizer_mode):
+def run_optimize_job(job, train, dev, sig, module_name, model, metric_mode, optimizer_mode):
     logger_dspy = logging.getLogger("dspy")
     handler = JobLogHandler(job)
     old_level = logger_dspy.level
@@ -496,7 +515,7 @@ def run_optimize_job(job, train, dev, sig, model, metric_mode, optimizer_mode):
 
     try:
         metric = make_metric(metric_mode)
-        baseline = dspy.ChainOfThought(sig)
+        baseline = make_program(sig, module_name)
         evaluate = dspy.Evaluate(devset=dev, metric=metric, num_threads=4, display_progress=False)
 
         with redirect_stdout(sink), redirect_stderr(sink):
@@ -560,10 +579,14 @@ def api_optimize_start():
         job = fresh_job()
         job["status"] = "running"
         STATE["optimize_job"] = job
-        train, dev, sig, model = STATE["train"], STATE["dev"], STATE["signature"], STATE["model"]
+        train, dev, sig, module_name, model = (
+            STATE["train"], STATE["dev"], STATE["signature"], STATE["module"], STATE["model"],
+        )
 
     thread = threading.Thread(
-        target=run_optimize_job, args=(job, train, dev, sig, model, metric_mode, optimizer_mode), daemon=True,
+        target=run_optimize_job,
+        args=(job, train, dev, sig, module_name, model, metric_mode, optimizer_mode),
+        daemon=True,
     )
     thread.start()
     return jsonify({"ok": True})
