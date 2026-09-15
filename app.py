@@ -445,9 +445,23 @@ def api_classify_stream():
         yield sse({"type": "step", **tr.step(f"selected the '{which}' program - {len(predictor.demos)} few-shot demo(s)")})
 
         adapter = dspy.ChatAdapter()
+        fd = adapter.format_field_description(predictor.signature)
+        yield sse({"type": "step", **tr.step("adapter.format_field_description() - listed every field's name, type, and description")})
+        fs = adapter.format_field_structure(predictor.signature)
+        yield sse({"type": "step", **tr.step("adapter.format_field_structure() - built the [[ ## field ## ]] wire-format contract")})
+        td = adapter.format_task_description(predictor.signature)
+        yield sse({"type": "step", **tr.step("adapter.format_task_description() - pulled signature.instructions verbatim")})
+
         messages = adapter.format(signature=predictor.signature, demos=predictor.demos, inputs={"ticket": ticket})
         chars = sum(len(m["content"]) for m in messages)
-        yield sse({"type": "step", **tr.step(f"ChatAdapter.format() built {len(messages)} message(s), {chars} characters")})
+        yield sse({"type": "step", **tr.step(f"adapter.format() assembled it all into {len(messages)} message(s), {chars} characters")})
+
+        yield sse({
+            "type": "prompt",
+            "breakdown": {"field_description": fd, "field_structure": fs, "task_description": td},
+            "n_demos": len(predictor.demos),
+            "n_messages": len(messages),
+        })
 
         yield sse({"type": "waiting", **tr.step(f"sending the request to {model} - waiting for a real response...")})
 

@@ -218,6 +218,16 @@
           const evt = JSON.parse(chunk.slice(6));
           if (evt.type === "step") appendTraceRow($("classifyTrace"), evt, false);
           else if (evt.type === "waiting") appendTraceRow($("classifyTrace"), evt, true);
+          else if (evt.type === "prompt") {
+            $("fdText").textContent = evt.breakdown.field_description;
+            $("fsText").textContent = evt.breakdown.field_structure;
+            $("tdText").textContent = evt.breakdown.task_description;
+            $("demoNote").textContent = evt.n_demos === 0
+              ? "0 few-shot demos in this prompt right now — " + evt.n_messages + " messages total."
+              : evt.n_demos + " few-shot demo(s) baked in from optimization — " + evt.n_messages + " messages total.";
+            $("previewTrace").innerHTML = "";
+            $("promptView").hidden = false;
+          }
           else if (evt.type === "error") errMsg = evt.msg;
           else if (evt.type === "done") done = evt;
         }
